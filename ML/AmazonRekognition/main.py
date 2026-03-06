@@ -1,3 +1,4 @@
+from flask import Blueprint, request, jsonify
 import os
 import boto3
 import io
@@ -8,6 +9,9 @@ from PIL import Image
 # IMPORT YOUR NEW ROBUST MODULE!
 from bedrock.llm_analyzer import analyze_with_llm
 
+
+
+image_bp = Blueprint('image_bp', __name__)
 load_dotenv()
 
 
@@ -19,7 +23,7 @@ rekognition = boto3.client(
     region_name=os.getenv('AWS_REGION', 'us-east-1')
 )
 
-@app.route('/predict-image', methods=['POST'])
+@image_bp.route('/predict-image', methods=['POST'])
 def predict_image():
     if 'file' not in request.files:
         return jsonify({'error': 'No image file provided'}), 400

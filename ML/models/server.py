@@ -1,3 +1,4 @@
+from flask import Blueprint, request, jsonify
 import os
 
 # 1. Suppress TensorFlow warnings
@@ -8,6 +9,10 @@ from flask import Flask, request, jsonify
 import numpy as np
 import librosa
 from tensorflow.keras.models import load_model
+
+
+audio_bp = Blueprint('audio_bp', __name__)
+
 
 # --- CONFIGURATION & MAPPING ---
 # Standard mapping for many Emotion Detection models (Adjust indices if your model differs)
@@ -49,7 +54,7 @@ def predict_audio_class(audio_data):
     predictions = model.predict(mfccs, verbose=0)
     return int(np.argmax(predictions, axis=1)[0])
 
-@app.route('/predict', methods=['POST'])
+@audio_bp.route('/predict', methods=['POST'])
 def predict():
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
