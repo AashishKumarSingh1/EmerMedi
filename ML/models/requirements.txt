@@ -1,0 +1,9 @@
+flask
+flask-cors
+tensorflow-cpu
+librosa
+numpy
+boto3
+python-dotenv
+Pillow
+gunicorn

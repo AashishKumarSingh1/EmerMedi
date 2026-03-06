@@ -3,53 +3,99 @@ import time
 import numpy as np
 import librosa
 import sounddevice as sd
+import wave
+
+# 1. Suppress TensorFlow/oneDNN warnings BEFORE importing
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 from tensorflow.keras.models import load_model
 
-# Load the pre-trained model from the specified path
-model_path = 'C:/Users/Hp/OneDrive/Desktop/sem4/coding/New folder/Nirbhaya/Nirbhaya/models/Emotion_Voice_Detection_Model.h5'  # Update with your model's path
-model = load_model(model_path)
+# 2. Dynamic Path Handling (Fixes your FileNotFoundError)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_NAME = 'Emotion_Voice_Detection_Model.h5'
+MODEL_PATH = os.path.join(BASE_DIR, MODEL_NAME)
 
-# Function to preprocess and predict real-time input
-def predict_audio_class(audio_data):
-    X, sr = librosa.load(audio_data, sr=16000)
+# 3. Emotion & Emergency Mapping
+EMOTION_MAP = {
+    0: {"label": "neutral",   "status": "NEUTRAL"},
+    1: {"label": "calm",      "status": "NEUTRAL"},
+    2: {"label": "happy",     "status": "NON-EMERGENCY"},
+    3: {"label": "sad",       "status": "NON-EMERGENCY"},
+    4: {"label": "angry",     "status": "EMERGENCY"},
+    5: {"label": "fearful",   "status": "EMERGENCY"},
+    6: {"label": "disgust",   "status": "NON-EMERGENCY"},
+    7: {"label": "surprised", "status": "EMERGENCY"} 
+}
+
+# Load the model
+if os.path.exists(MODEL_PATH):
+    print(f"--- Loading Model: {MODEL_NAME} ---")
+    model = load_model(MODEL_PATH)
+    print("✅ System Ready. Starting Live Monitoring...")
+else:
+    print(f"❌ ERROR: Could not find model at {MODEL_PATH}")
+    exit()
+
+def predict_audio_class(filename):
+    """Processes the recorded wav file and returns the emotion index."""
+    # Load audio (standardizing sample rate to 16kHz)
+    X, sr = librosa.load(filename, sr=16000)
     mfccs = np.mean(librosa.feature.mfcc(y=X, sr=sr, n_mfcc=40).T, axis=0)
     
-    # Reshape to match model input shape (1, 40, 1)
-    mfccs = np.expand_dims(mfccs, axis=0)  # Shape (1, 40)
-    mfccs = np.expand_dims(mfccs, axis=-1)  # Shape (1, 40, 1)
+    # Reshape for model: (1, 40, 1)
+    mfccs = np.expand_dims(mfccs, axis=(0, -1))
 
-    # Predict class label
-    predictions_probabilities = model.predict(mfccs)
-    prediction = np.argmax(predictions_probabilities, axis=1)
+    # Predict
+    predictions = model.predict(mfccs, verbose=0)
+    return int(np.argmax(predictions, axis=1)[0])
 
-    return prediction[0]
+def record_and_save(duration=5, filename="live_temp.wav"):
+    """Records audio and saves it as a temporary WAV file for analysis."""
+    print(f"\n[LISTENING] Recording for {duration} seconds...")
+    sample_rate = 16000
+    recorded_audio = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=1, dtype='float32')
+    sd.wait()
+    
+    # Save to disk as 16-bit PCM (Standard for Librosa)
+    with wave.open(filename, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes((recorded_audio * 32767).astype(np.int16))
+    return filename
 
-# Function to record audio for a specified duration
-def record_audio(duration=3):
-    print(f"Recording for {duration} seconds...")
-    recorded_audio = sd.rec(int(duration * 16000), samplerate=16000, channels=1, dtype='float32')
-    sd.wait()  # Wait until the recording is finished
-    print("Recording complete.")
-    return recorded_audio.flatten()  # Flatten to 1D array
-
-# Continuous loop for real-time predictions
+# --- MAIN MONITORING LOOP ---
 try:
+    print("Press Ctrl+C to stop monitoring.")
     while True:
-        # Record audio (5 seconds duration)
-        audio_data = record_audio(duration=5)
+        # 1. Record 5 seconds of audio
+        audio_file = record_and_save(duration=5)
 
-        # Print the audio data shape for debugging
-        print(f"Recorded audio data shape: {audio_data.shape}")
+        # 2. Analyze the recorded file
+        class_idx = predict_audio_class(audio_file)
+        
+        # 3. Get Human-readable status
+        info = EMOTION_MAP.get(class_idx, {"label": "unknown", "status": "UNKNOWN"})
+        emotion = info['label'].upper()
+        status = info['status']
 
-        # Predict the class of the recorded audio
-        predicted_class = predict_audio_class(audio_data)
+        # 4. Clear and Professional Console Output
+        print("-" * 40)
+        print(f"DETECTED EMOTION : {emotion}")
+        print(f"EMERGENCY STATUS : {status}")
+        
+        if status == "EMERGENCY":
+            print("🚨 ALERT: Potential threat detected!")
+        elif status == "NON-EMERGENCY":
+            print("ℹ️  Info: Voice detected, no threat.")
+        else:
+            print("ℹ️  Info: Environment is calm.")
+        print("-" * 40)
 
-        # Print the predicted class
-        print("Predicted class for recorded audio:", predicted_class)
-
-        # Optional: Add a delay before the next recording
-        print("Waiting before the next recording...")
-        time.sleep(1)
+        # Optional delay to prevent CPU overload
+        time.sleep(0.5)
 
 except KeyboardInterrupt:
-    print("Stopping the real-time predictions.")
+    print("\n--- Stopping Live Monitoring ---")
+    if os.path.exists("live_temp.wav"):
+        os.remove("live_temp.wav")
