@@ -34,9 +34,9 @@ def generate_transcript(patient_data: dict) -> dict:
     }
     """
     
-    prompt_text = prompt_text = """
+    prompt_text = """
     You are an Expert Emergency Medical Dispatch Communicator. 
-    Your task is to take the provided JSON data and write two distinct, spoken-word transcripts meant to be read aloud by a Text-to-Speech (TTS) system.
+    Your task is to take the provided JSON data and write three distinct, spoken-word transcripts meant to be read aloud by a Text-to-Speech (TTS) system.
 
     REQUIREMENTS FOR AMBULANCE TRANSCRIPT:
     - Target Audience: Paramedics/EMTs in the ambulance.
@@ -50,6 +50,12 @@ def generate_transcript(patient_data: dict) -> dict:
     - Content MUST include: Mention the 'incident_location' so the trauma team understands the scene context (e.g., highway vs residential).
     - Language: English (Standard Medical English).
 
+    REQUIREMENTS FOR BYSTANDER / CALLER TRANSCRIPT:
+    - Target Audience: The panicked caller or bystander currently with the patient.
+    - Style: Calm, reassuring, and highly instructive.
+    - Content MUST include: Start by reassuring them that the ambulance is on the way to their location. Then, provide 2 to 3 simple, step-by-step immediate first-aid actions based on the patient's specific 'chief_complaint' (e.g., "apply direct pressure to the wound," "keep them seated upright," or "do not move their neck"). 
+    - Language: Plain, non-medical English. Speak in short, easy-to-follow sentences.
+
     Extract and return ONLY a valid JSON object with this exact schema:
     {
       "ambulance_audio_script": {
@@ -59,6 +65,10 @@ def generate_transcript(patient_data: dict) -> dict:
       "doctor_audio_script": {
         "language": "English",
         "transcript": "The full clinical SBAR text meant for the hospital TTS..."
+      },
+      "bystander_audio_script": {
+        "language": "English",
+        "transcript": "The reassuring, step-by-step first aid text meant for the caller on the phone..."
       }
     }
     
