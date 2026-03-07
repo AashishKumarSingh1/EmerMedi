@@ -6,8 +6,8 @@ from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from PIL import Image
 
-# IMPORT YOUR NEW ROBUST MODULE!
-from bedrock.llm_analyzer import analyze_with_llm
+
+from AmazonRekognition.bedrock.llm_analyzer import analyze_with_llm
 
 
 
