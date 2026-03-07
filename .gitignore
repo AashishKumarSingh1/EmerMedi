@@ -29,3 +29,9 @@ node_modules/
 .next/
 out/
 build/
+.vscode
+application\.agents
+application/skills-lock.json
+application/SETUP.md
+application/.agents/skills/frontend-design/LICENSE.txt
+application/.agents/skills/frontend-design/SKILL.md

@@ -1,11 +1,18 @@
 import boto3
 import json
 import os
+from dotenv import load_dotenv
 
-# Initialize the Bedrock Client 
-# Note: In Hackathon environments, Boto3 picks up the Bearer Token 
-# automatically if it's set in the environment or via specific config.
-client = boto3.client("bedrock-runtime", region_name="us-east-1")
+load_dotenv()
+
+# Initialize the Bedrock Client with explicit credentials
+# This prevents bearer token expiration issues
+client = boto3.client(
+    "bedrock-runtime",
+    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+    region_name=os.getenv('AWS_REGION', 'us-east-1')
+)
 
 def analyze_with_llm(labels, prompt_template):
     """
