@@ -14,7 +14,7 @@ ML/**/__pycache__/
 *$py.class
 
 # ML Models and Large Audio Files
-ML/**/*.h5
+# ML/**/*.h5
 ML/**/*.wav
 ML/**/*.mp3
 ML/**/temp_audio.wav
