@@ -1,0 +1,30 @@
+{
+    "patient_info": {
+        "name": "Unknown Male",
+        "age": 45,
+        "gender": "Male"
+    },
+    "current_incident": {
+        "chief_complaint": "Severe chest pain, suspected myocardial infarction",
+        "vitals": {
+            "bp": "160/95",
+            "heart_rate": 115,
+            "spo2": 92
+        },
+        "severity": "Critical"
+    },
+    "medical_history": {
+        "known_conditions": [
+            "Hypertension"
+        ],
+        "allergies": [
+            "Aspirin"
+        ]
+    },
+    "logistics": {
+        "incident_location": "Gandhi Maidan, near Gate 4",
+        "ambulance_current_location": "Patna Junction",
+        "region": "Patna, Bihar",
+        "preferred_local_language": "Hindi"
+    }
+}
