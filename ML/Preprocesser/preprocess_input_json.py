@@ -1,48 +1,64 @@
-from LLM_brain.llm import llm
 import json
+import os
+from datetime import datetime
+from LLM_brain.llm import llm
 
 def preprocess_data(json_input: dict):
     """
-    Acts as a DB sorter to scrape only hospital-relevant features 
-    from the raw triage analysis.
+    Enhanced Sorter: Prepares a complete 'Pre-Arrival Notification' for the hospital.
+    Includes Medical, Logistical (GPS/Traffic), and Scene data.
     """
-    
-    # Refined prompt to ensure the LLM behaves like a precise data scraper
+    print("data receiver in preprocesss data")
     prompt = """
-    You are a Medical Database Sorter. Your job is to scrape the provided JSON 
-    and extract ONLY the features required for a Hospital Finder service.
+    You are an Emergency Medical Dispatcher. Your task is to scrape the provided incident data 
+    and format a "Pre-Arrival Notification" for the receiving Hospital. 
     
-    Extract and return a JSON object with these specific keys:
-    1. 'severity_level': (How critical is the situation?)
-    2. 'required_facility_type': (Trauma Center, Burn Unit, Cardiac ER, etc.)
-    3. 'patient_condition': (The primary injury/disease like 'Head Trauma' or 'Cardiac Arrest')
-    4. 'equipment_needed': (e.g., Ventilator, MRI, Operating Room)
-    5. 'location_context': (Any mention of location or scene environment)
-    6. 'review_score_priority': (Scale 1-10: How important is hospital rating for this case? 
-       Example: 1 for immediate life-saving, 10 for minor surgery)
-
-    CRITICAL: Return ONLY valid JSON. No conversational text.
+    Extract and return a JSON object with these specific sections:
+    1. 'clinical_summary': 
+       - severity_level (Critical/Urgent/Stable)
+       - patient_condition (Primary injury/complaint)
+       - suspected_injuries (List of specific trauma)
+       - consciousness_level
+    2. 'logistics':
+       - coordinates (Latitude/Longitude if present in data, otherwise null)
+       - traffic_conditions (If mentioned, e.g., heavy/clear)
+       - scene_type (e.g., Highway, Residential, Industrial)
+       - estimated_arrival_urgency (Immediate/Standard)
+    3. 'hospital_requirements':
+       - required_facility_type (e.g., Level 1 Trauma, Cardiac Center)
+       - equipment_needed (e.g., Ventilator, Blood Bank, CT Scan, Operating Room)
+       - specialist_ready (e.g., Neurosurgeon, Cardiologist)
+    4. 'environmental_hazards':
+       - fire_smoke_presence (boolean)
+       - chemical_biological_risk (boolean)
+    
+    CRITICAL: 
+    - If a field is not present in the input data, set it to null. 
+    - Do NOT hallucinate data. 
+    - Return ONLY valid JSON.
     """
-    
-    # Call the LLM to perform the 'scraping' logic
-    scraped_features = llm(prompt, json_input)
-    
-    return scraped_features
 
-# --- Integration Example ---
-if __name__ == "__main__":
-    # Example raw input from your triage model
-    raw_data = {
-        "emergency_level": "critical",
-        "scene_type": "cardiac_event",
-        "patient_status": {"consciousness_level": "unconscious"},
-        "detected_injuries": [],
-        "medical_flags": {"cardiac_event_suspected": True},
-        # ... (rest of the 50+ lines of JSON)
-    }
+    # 1. Call LLM
+    handover_data = llm(prompt, json_input)
 
-    # Scrape the useful bits
-    hospital_search_features = preprocess_data(raw_data)
+    # 2. Save the data to logs (using the helper logic)
+    _save_to_logs(handover_data, "hospital_handover")
+
+    return handover_data
+
+def _save_to_logs(data, prefix):
+    """Helper to ensure data is saved locally for auditing."""
+    try:
+        log_folder = "scraped_data_logs"
+        if not os.path.exists(log_folder):
+            os.makedirs(log_folder)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = os.path.join(log_folder, f"{prefix}_{timestamp}.json")
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        print(f"✅ Handover data saved: {filepath}")
+    except Exception as e:
+        print(f"⚠️ Save failed: {e}")
+
+
     
-    print("--- SCRAPED FEATURES FOR HOSPITAL FINDER ---")
-    print(json.dumps(hospital_search_features, indent=2))

@@ -2,101 +2,99 @@ import boto3
 import json
 import os
 import re
-from botocore.config import Config
+from dotenv import load_dotenv
 
-def llm(input_task: str, data: any, model_id: str = "us.amazon.nova-2-lite-v1:0") -> dict:
+# 1. Force load the .env file from the root directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
+env_path = os.path.join(current_dir, "..", ".env")
+load_dotenv(dotenv_path=env_path, override=True)
+
+def llm(prompt_text: str, context_data: dict = None) -> dict:
     """
-    Modular text-to-text function that strictly returns a JSON object.
-    
-    Args:
-        input_task: The logic/instruction (e.g. "Assess emergency level")
-        data: The raw data to process (e.g. emotion list, sensor data)
+    Sends a prompt and optional context to Amazon Nova via Bedrock.
+    Forces the output to be strictly parsed as JSON.
     """
     
-    # 1. Setup AWS Client
-    config = Config(read_timeout=120, connect_timeout=60, retries={'max_attempts': 2})
-    client = boto3.client("bedrock-runtime", region_name=os.getenv("AWS_REGION", "us-east-1"), config=config)
-
-    # 2. Strict Prompting (Forcing JSON)
-    # We embed the instruction to ensure the model doesn't talk back with "Sure, here is your JSON:"
-    formatted_data = json.dumps(data, indent=2) if isinstance(data, (dict, list)) else str(data)
+    # 2. Get keys and CRITICALLY .strip() them to remove invisible spaces
+    key = os.getenv("AWS_ACCESS_KEY_ID", "").strip()
+    secret = os.getenv("AWS_SECRET_ACCESS_KEY", "").strip()
+    region = os.getenv("AWS_REGION", "us-east-1").strip()
     
-    prompt = f"""
-    You are a data processing engine. 
-    DATA TO ANALYZE:
-    {formatted_data}
+    # Using the Cross-Region Inference Profile for Amazon Nova Lite
+    model_id = "us.amazon.nova-lite-v1:0"
 
-    INSTRUCTION:
-    {input_task}
+    if not key or not secret:
+        return {"error": "Missing AWS Credentials in .env file"}
 
-    CRITICAL: Your response must be ONLY a valid JSON object. 
-    Do not include any introductory text, explanations, or markdown formatting.
-    """
-
+    # 3. Create an explicit Session
     try:
-        # 3. Call Bedrock
+        session = boto3.Session(
+            aws_access_key_id=key,
+            aws_secret_access_key=secret,
+            region_name=region
+        )
+        client = session.client("bedrock-runtime")
+    except Exception as e:
+        return {"error": "Failed to create AWS Session", "details": str(e)}
+
+    # 4. Format Prompt (Engineered to heavily discourage Markdown block output)
+    json_instruction = "IMPORTANT: Respond ONLY with a valid JSON object. Do not include markdown formatting like ```json or any conversational text."
+    
+    if context_data:
+        full_prompt = f"DATA CONTEXT:\n{json.dumps(context_data, indent=2)}\n\nINSTRUCTION:\n{prompt_text}\n\n{json_instruction}"
+    else:
+        full_prompt = f"{prompt_text}\n\n{json_instruction}"
+
+    system_prompt = "You are an expert data processor. Your output must be exclusively raw, valid JSON."
+
+    # 5. Call LLM
+    try:
         response = client.converse(
             modelId=model_id,
-            messages=[{"role": "user", "content": [{"text": prompt}]}],
-            inferenceConfig={"temperature": 0.1} # Low temperature = high consistency
+            messages=[{"role": "user", "content": [{"text": full_prompt}]}],
+            system=[{"text": system_prompt}],
+            inferenceConfig={"maxTokens": 2048, "temperature": 0.1}
         )
-
-        # 4. Extract Text
-        res_text = response["output"]["message"]["content"][0]["text"].strip()
-
-        # 5. Robust JSON Extraction
-        # This handles cases where the model ignores instructions and adds ```json ... ```
-        json_match = re.search(r'\{.*\}', res_text, re.DOTALL)
+        
+        raw_text = response["output"]["message"]["content"][0]["text"].strip()
+        
+        # 6. Advanced JSON extraction
+        # This regex looks for the first { or [ and the last } or ] to capture the whole JSON block
+        json_match = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
+        
         if json_match:
-            clean_json = json_match.group(0)
-            return json.loads(clean_json)
-        else:
-            # If no curly braces found, try to parse the whole thing
-            return json.loads(res_text)
-
-    except json.JSONDecodeError:
+            json_str = json_match.group(1)
+            return json.loads(json_str)
+        
+        # Fallback if regex somehow misses but text is valid JSON
+        return json.loads(raw_text)
+        
+    except json.JSONDecodeError as e:
         return {
-            "status": "error",
-            "message": "Model returned invalid JSON formatting",
-            "raw_output": res_text[:200]
+            "error": "Failed to parse LLM output as JSON", 
+            "raw_response": raw_text, 
+            "details": str(e)
         }
     except Exception as e:
-        return {
-            "status": "error", 
-            "message": str(e)
-        }
-
-# --- EXAMPLE USAGE ---
-
-# 1. Defining the data (e.g. from your emotion detector)
-emotion_data = {
-    "detected_emotions": ["Extreme Fear", "Panic"],
-    "intensity_score": 0.95,
-    "duration_seconds": 10
-}
-
-# 2. Defining the task
-task = """
-Determine if this is an emergency. 
-Return JSON with:
-- "is_emergency": boolean
-- "severity": "low/medium/high"
-- "action_required": "string"
-"""
-
-# 3. Running the function
-result = llm(task, emotion_data)
-
-
+        return {"error": "LLM Invocation Failed", "details": str(e)}
 
 if __name__ == "__main__":
-    # Move all your example/test code inside here
-    test_data = {"emotion": "panic"}
-    test_task = "Is this an emergency?"
-    result = llm(test_task, test_data)
+    print("Testing modular LLM connection...")
     
-    # Safely check for the key
-    if "is_emergency" in result:
-        print(result["is_emergency"])
-    else:
-        print("Test Result:", result)
+    # Test 1: Prompt Only
+    print("\n--- Test 1: Prompt Only ---")
+    res1 = llm(prompt_text="Return a JSON with key 'status' and value 'success'.")
+    print(json.dumps(res1, indent=2))
+    
+    # Test 2: Prompt + Context Data
+    print("\n--- Test 2: Prompt + Context Data ---")
+    sample_context = {
+        "patient_id": "EMER-992", 
+        "vitals": {"heart_rate": 110, "blood_pressure": "140/90"},
+        "symptoms": ["severe headache", "nausea"]
+    }
+    res2 = llm(
+        prompt_text="Analyze the patient data. Return a JSON with 'risk_level' (High, Medium, Low) and 'recommended_action'.", 
+        context_data=sample_context
+    )
+    print(json.dumps(res2, indent=2))

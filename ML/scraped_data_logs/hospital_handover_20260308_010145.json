@@ -1,0 +1,4 @@
+{
+    "status": "error",
+    "message": "An error occurred (AccessDeniedException) when calling the Converse operation: Authentication failed: Please make sure your API Key is valid."
+}
