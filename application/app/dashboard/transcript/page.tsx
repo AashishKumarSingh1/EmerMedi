@@ -135,9 +135,9 @@ export default function TranscriptPage() {
               zoom={12}
               scrollWheelZoom
               className="h-full w-full"
-              whenReady={(e) => {
-                setTimeout(() => e.target.invalidateSize(), 0);
-              }}
+              // whenReady={(e) => {
+              //   setTimeout(() => e.target.invalidateSize(), 0);
+              // }}
             >
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'

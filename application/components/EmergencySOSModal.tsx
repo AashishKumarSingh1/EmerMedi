@@ -162,9 +162,9 @@ function HospitalsLeafletMap({
         zoom={12}
         scrollWheelZoom
         className="h-full w-full"
-        whenReady={(e) => {
-          setTimeout(() => e.target.invalidateSize(), 0);
-        }}
+        // whenReady={(e) => {
+        //   setTimeout(() => e.target.invalidateSize(), 0);
+        // }}
       >
         <LeafletTileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'

@@ -137,10 +137,10 @@ export default function MapPage() {
               zoom={12}
               scrollWheelZoom
               className="h-full w-full"
-              whenReady={(e) => {
-                // Leaflet sometimes needs a size invalidation after mount.
-                setTimeout(() => e.target.invalidateSize(), 0);
-              }}
+              // whenReady={(e) => {
+              //   // Leaflet sometimes needs a size invalidation after mount.
+              //   setTimeout(() => e.target.invalidateSize(), 0);
+              // }}
             >
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
