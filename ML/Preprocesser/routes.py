@@ -4,6 +4,8 @@ from Preprocesser.preprocess_input_json import preprocess_data
 from Preprocesser.hospital_finder import hospital_finder
 from Preprocesser.generate_transcript import generate_transcript
 from Preprocesser.generate_epcr import generate_comprehensive_epcr
+from Preprocesser.get_audio_sev import get_audio_sev
+from Preprocesser.update_data_from_image import update_data_from_image
 hospital_bp = Blueprint('hospital_bp', __name__)
 
 @hospital_bp.route('/find-hospitals', methods=['POST'])
@@ -93,5 +95,67 @@ def generate_epcr_route():
     except Exception as e:
         return jsonify({
             "status": "error", 
+            "message": str(e)
+        }), 500
+
+@hospital_bp.route('/audio/analyze', methods=['POST'])
+def analyze_audio_route():
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({"error": "No JSON payload provided"}), 400
+
+        context = data.get("context")
+        audio_file = data.get("audio_file")
+
+        if not audio_file:
+            return jsonify({"error": "audio_file is required"}), 400
+
+        result = get_audio_sev(data)
+
+        if isinstance(result, dict) and "error" in result:
+            return jsonify({
+                "status": "error",
+                "message": result["error"]
+            }), 500
+
+        return jsonify({
+            "status": "success",
+            "data": result
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@hospital_bp.route('/scan-document', methods=['POST'])
+def scan_document_route():
+    try:
+        if "file" not in request.files:
+            return jsonify({"error": "No document image provided"}), 400
+
+        image_file = request.files["file"]
+
+        print("Document received for patient history update")
+
+        result = update_data_from_image(image_file)
+
+        if "error" in result:
+            return jsonify({
+                "status": "error",
+                "message": result["error"]
+            }), 500
+
+        return jsonify({
+            "status": "success",
+            "data": result
+        }), 200
+
+    except Exception as e:
+        return jsonify({
+            "status": "error",
             "message": str(e)
         }), 500
