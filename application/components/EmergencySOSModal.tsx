@@ -611,24 +611,83 @@ export default function EmergencySOSModal({ isOpen, onClose }: EmergencySOSModal
   const [diagnosisResult, setDiagnosisResult] = useState<DiagnosisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resultKey, setResultKey] = useState(0);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const resetState = () => {
+    // Stop and clean up media recorder
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {
+        console.error('Error stopping media recorder:', e);
+      }
+    }
+    mediaRecorderRef.current = null;
+    
+    // Clear recording interval
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+      recordingIntervalRef.current = null;
+    }
+    
+    // Stop all media tracks
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        track.stop();
+      });
+      streamRef.current = null;
+    }
+    
+    // Clear video element
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    
+    // Clear file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    
+    // Reset all state
     setStep('select');
     setUploadType(null);
     setSelectedFile(null);
     setDiagnosisResult(null);
     setError(null);
     setIsUploading(false);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    setIsRecording(false);
+    setRecordingTime(0);
+    audioChunksRef.current = [];
   };
 
   useEffect(() => {
     if (!isOpen) {
-      const t = setTimeout(resetState, 200);
-      return () => clearTimeout(t);
+      resetState();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    
+    // Cleanup on unmount
+    return () => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch (e) {
+          console.error('Cleanup error:', e);
+        }
+      }
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
   }, [isOpen]);
 
   const handleTypeSelect = (type: 'audio' | 'image') => {
@@ -670,17 +729,224 @@ export default function EmergencySOSModal({ isOpen, onClose }: EmergencySOSModal
   };
 
   const handleBack = () => {
+    // Clean up any active streams
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {
+        console.error('Error stopping recorder:', e);
+      }
+    }
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+    }
+    
     if (step === 'upload') {
-      setStep('select'); setUploadType(null); setSelectedFile(null); setError(null);
+      setStep('select');
+      setUploadType(null);
+      setSelectedFile(null);
+      setError(null);
+      setIsRecording(false);
+      setRecordingTime(0);
       if (fileInputRef.current) fileInputRef.current.value = '';
     } else if (step === 'result') {
-      setStep('upload'); setDiagnosisResult(null); setError(null);
+      setStep('upload');
+      setDiagnosisResult(null);
+      setError(null);
     }
   };
 
   const handleNewDiagnosis = () => {
     resetState();
     setResultKey(k => k + 1);
+  };
+
+  const startAudioRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        
+        // Convert WebM to WAV in browser
+        try {
+          const wavBlob = await convertToWav(audioBlob);
+          const audioFile = new File([wavBlob], `recording-${Date.now()}.wav`, { type: 'audio/wav' });
+          setSelectedFile(audioFile);
+        } catch (err) {
+          console.error('WAV conversion failed, using original:', err);
+          const audioFile = new File([audioBlob], `recording-${Date.now()}.webm`, { type: 'audio/webm' });
+          setSelectedFile(audioFile);
+        }
+        
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop());
+          streamRef.current = null;
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+      
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingTime(t => t + 1);
+      }, 1000);
+    } catch (err) {
+      setError('Failed to access microphone. Please check permissions.');
+      console.error('Recording error:', err);
+    }
+  };
+
+  const convertToWav = async (blob: Blob): Promise<Blob> => {
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const arrayBuffer = await blob.arrayBuffer();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+    
+    // Convert to WAV format
+    const wavBuffer = audioBufferToWav(audioBuffer);
+    return new Blob([wavBuffer], { type: 'audio/wav' });
+  };
+
+  const audioBufferToWav = (buffer: AudioBuffer): ArrayBuffer => {
+    const length = buffer.length * buffer.numberOfChannels * 2 + 44;
+    const arrayBuffer = new ArrayBuffer(length);
+    const view = new DataView(arrayBuffer);
+    const channels: Float32Array[] = [];
+    let offset = 0;
+    let pos = 0;
+
+    // Write WAV header
+    const setUint16 = (data: number) => {
+      view.setUint16(pos, data, true);
+      pos += 2;
+    };
+    const setUint32 = (data: number) => {
+      view.setUint32(pos, data, true);
+      pos += 4;
+    };
+
+    // RIFF identifier
+    setUint32(0x46464952);
+    // file length minus RIFF identifier length and file description length
+    setUint32(length - 8);
+    // RIFF type
+    setUint32(0x45564157);
+    // format chunk identifier
+    setUint32(0x20746d66);
+    // format chunk length
+    setUint32(16);
+    // sample format (raw)
+    setUint16(1);
+    // channel count
+    setUint16(buffer.numberOfChannels);
+    // sample rate
+    setUint32(buffer.sampleRate);
+    // byte rate (sample rate * block align)
+    setUint32(buffer.sampleRate * buffer.numberOfChannels * 2);
+    // block align (channel count * bytes per sample)
+    setUint16(buffer.numberOfChannels * 2);
+    // bits per sample
+    setUint16(16);
+    // data chunk identifier
+    setUint32(0x61746164);
+    // data chunk length
+    setUint32(length - pos - 4);
+
+    // Write interleaved data
+    for (let i = 0; i < buffer.numberOfChannels; i++) {
+      channels.push(buffer.getChannelData(i));
+    }
+
+    while (pos < length) {
+      for (let i = 0; i < buffer.numberOfChannels; i++) {
+        let sample = Math.max(-1, Math.min(1, channels[i][offset]));
+        sample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+        view.setInt16(pos, sample, true);
+        pos += 2;
+      }
+      offset++;
+    }
+
+    return arrayBuffer;
+  };
+
+  const stopAudioRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    if (recordingIntervalRef.current) {
+      clearInterval(recordingIntervalRef.current);
+    }
+    setIsRecording(false);
+  };
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'environment' } 
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+    } catch (err) {
+      setError('Failed to access camera. Please check permissions.');
+      console.error('Camera error:', err);
+    }
+  };
+
+  const capturePhoto = () => {
+    if (!videoRef.current) return;
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(videoRef.current, 0, 0);
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const file = new File([blob], `capture-${Date.now()}.jpg`, { type: 'image/jpeg' });
+          setSelectedFile(file);
+          stopCamera();
+        }
+      }, 'image/jpeg', 0.95);
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   if (!isOpen) return null;
@@ -713,9 +979,9 @@ export default function EmergencySOSModal({ isOpen, onClose }: EmergencySOSModal
 
         <div className="p-6">
 
-          {/* Step 1 — Select type (CSS hidden instead of unmount to prevent removeChild errors) */}
-          <div className={step !== 'select' ? 'hidden' : ''}>
-            <div className="grid md:grid-cols-2 gap-4">
+          {/* Step 1 — Select type */}
+          {step === 'select' && (
+          <div className="grid md:grid-cols-2 gap-4">
               <button onClick={() => handleTypeSelect('audio')}
                 className="group p-8 bg-gradient-to-br from-blue-500/10 to-blue-600/10 dark:from-blue-500/20 dark:to-blue-600/20 border-2 border-blue-500/30 dark:border-blue-500/40 rounded-xl hover:border-blue-500/70 transition-all hover:scale-[1.02] text-left">
                 <div className="w-16 h-16 bg-blue-500/20 dark:bg-blue-500/30 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
@@ -734,27 +1000,156 @@ export default function EmergencySOSModal({ isOpen, onClose }: EmergencySOSModal
                 <p className="text-sm text-slate-500 dark:text-slate-400">Visual scene triage with AI + Rekognition</p>
               </button>
             </div>
-          </div>
+          )}
 
-          {/* Step 2 — Upload (CSS hidden instead of unmount) */}
-          <div className={step !== 'upload' ? 'hidden' : ''}>
-            <div className="space-y-5">
-              <div onClick={() => fileInputRef.current?.click()}
-                className="border-2 border-dashed border-black/20 dark:border-white/20 rounded-xl p-12 text-center hover:border-black/40 dark:hover:border-white/40 hover:bg-black/3 dark:hover:bg-white/3 transition-all cursor-pointer">
-                <div className="w-20 h-20 bg-black/5 dark:bg-white/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <Upload className="w-10 h-10 text-slate-500 dark:text-slate-400" />
+          {/* Step 2 — Upload */}
+          {step === 'upload' && (
+          <div className="space-y-5">
+              {/* Audio Recording Option */}
+              {uploadType === 'audio' && !selectedFile && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <button
+                      onClick={isRecording ? stopAudioRecording : startAudioRecording}
+                      className={`p-6 rounded-xl border-2 transition-all ${
+                        isRecording
+                          ? 'bg-red-500/10 border-red-500/50 hover:bg-red-500/20'
+                          : 'bg-blue-500/10 border-blue-500/30 hover:border-blue-500/50'
+                      }`}
+                    >
+                      <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-3 ${
+                        isRecording ? 'bg-red-500/20 animate-pulse' : 'bg-blue-500/20'
+                      }`}>
+                        <Mic className={`w-8 h-8 ${isRecording ? 'text-red-600' : 'text-blue-600'}`} />
+                      </div>
+                      <p className="text-sm font-semibold text-center">
+                        {isRecording ? `Recording... ${formatTime(recordingTime)}` : 'Record Audio'}
+                      </p>
+                    </button>
+
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="p-6 rounded-xl border-2 bg-purple-500/10 border-purple-500/30 hover:border-purple-500/50 transition-all"
+                    >
+                      <div className="w-16 h-16 bg-purple-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <Upload className="w-8 h-8 text-purple-600" />
+                      </div>
+                      <p className="text-sm font-semibold text-center">Upload File</p>
+                    </button>
+                  </div>
+                  <p className="text-xs text-center text-slate-500 dark:text-slate-400">
+                    Record your voice or upload an audio file (MP3, WAV, M4A, OGG)
+                  </p>
                 </div>
-                <p className="text-lg font-semibold text-slate-800 dark:text-white mb-1">
-                  {selectedFile ? selectedFile.name : `Click to upload ${uploadType} file`}
-                </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  {uploadType === 'audio' ? 'Supported: MP3, WAV, M4A, OGG' : 'Supported: JPG, PNG, WEBP, GIF'}
-                </p>
-              </div>
+              )}
+
+              {/* Image Capture Option */}
+              {uploadType === 'image' && !selectedFile && !streamRef.current && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <button
+                      onClick={startCamera}
+                      className="p-6 rounded-xl border-2 bg-green-500/10 border-green-500/30 hover:border-green-500/50 transition-all"
+                    >
+                      <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <ImageIcon className="w-8 h-8 text-green-600" />
+                      </div>
+                      <p className="text-sm font-semibold text-center">Capture Photo</p>
+                    </button>
+
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="p-6 rounded-xl border-2 bg-purple-500/10 border-purple-500/30 hover:border-purple-500/50 transition-all"
+                    >
+                      <div className="w-16 h-16 bg-purple-500/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                        <Upload className="w-8 h-8 text-purple-600" />
+                      </div>
+                      <p className="text-sm font-semibold text-center">Upload File</p>
+                    </button>
+                  </div>
+                  <p className="text-xs text-center text-slate-500 dark:text-slate-400">
+                    Take a photo or upload an image file (JPG, PNG, WEBP, GIF)
+                  </p>
+                </div>
+              )}
+
+              {/* Camera View */}
+              {uploadType === 'image' && streamRef.current && !selectedFile && (
+                <div className="space-y-4">
+                  <div className="relative rounded-xl overflow-hidden bg-black">
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      className="w-full h-auto"
+                    />
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={capturePhoto}
+                      className="flex-1 py-3 bg-green-600 hover:bg-green-700 rounded-xl font-semibold transition-all text-white flex items-center justify-center gap-2"
+                    >
+                      <ImageIcon className="w-5 h-5" />
+                      Capture Photo
+                    </button>
+                    <button
+                      onClick={stopCamera}
+                      className="px-6 py-3 bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20 rounded-xl font-semibold transition-all"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* File Preview */}
+              {selectedFile && (
+                <div className="space-y-4">
+                  <div className="border-2 border-dashed border-green-500/50 rounded-xl p-8 text-center bg-green-500/5">
+                    <div className="w-16 h-16 bg-green-500/20 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                      <CheckCircle className="w-8 h-8 text-green-600" />
+                    </div>
+                    <p className="text-lg font-semibold text-slate-800 dark:text-white mb-1">
+                      {selectedFile.name}
+                    </p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                    </p>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        setSelectedFile(null);
+                        if (fileInputRef.current) fileInputRef.current.value = '';
+                      }}
+                      className="px-6 py-3 bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20 rounded-xl font-semibold transition-all text-sm"
+                    >
+                      Change
+                    </button>
+                    <button
+                      onClick={handleUpload}
+                      disabled={isUploading}
+                      className="flex-1 py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 disabled:opacity-60 rounded-xl font-bold tracking-wide transition-all text-white flex items-center justify-center gap-3 disabled:cursor-not-allowed text-sm uppercase"
+                    >
+                      {isUploading ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          <span>Analyzing...</span>
+                        </>
+                      ) : (
+                        <>
+                          <AlertCircle className="w-5 h-5" />
+                          <span>Run Emergency Analysis</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <input ref={fileInputRef} type="file"
                 accept={uploadType === 'audio' ? 'audio/*' : 'image/*'}
-                capture={uploadType === 'image' ? 'environment' : undefined}
                 onChange={handleFileSelect} className="hidden" />
 
               {error && (
@@ -763,50 +1158,31 @@ export default function EmergencySOSModal({ isOpen, onClose }: EmergencySOSModal
                   <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
                 </div>
               )}
-
-              {selectedFile && (
-                <button onClick={handleUpload} disabled={isUploading}
-                  className="w-full py-4 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-500 hover:to-red-600 disabled:opacity-60 rounded-xl font-bold tracking-wide transition-all text-white flex items-center justify-center gap-3 disabled:cursor-not-allowed text-sm uppercase">
-                  {isUploading ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      <span>Analyzing...</span>
-                    </>
-                  ) : (
-                    <>
-                      <AlertCircle className="w-5 h-5" />
-                      <span>Run Emergency Analysis</span>
-                    </>
-                  )}
-                </button>
-              )}
             </div>
-          </div>
+          )}
 
-          {/* Step 3 — Results (CSS hidden instead of unmount) */}
-          <div className={step !== 'result' ? 'hidden' : ''}>
-            {diagnosisResult && (
-              <div className="space-y-4">
-                {diagnosisResult.type === 'audio' && (
-                  <AudioResultView key={resultKey} result={diagnosisResult} />
-                )}
-                {diagnosisResult.type === 'image' && diagnosisResult.triage && (
-                  <ImageTriageView key={resultKey} triage={diagnosisResult.triage} />
-                )}
+          {/* Step 3 — Results */}
+          {step === 'result' && diagnosisResult && (
+            <div className="space-y-4">
+              {diagnosisResult.type === 'audio' && (
+                <AudioResultView key={resultKey} result={diagnosisResult} />
+              )}
+              {diagnosisResult.type === 'image' && diagnosisResult.triage && (
+                <ImageTriageView key={resultKey} triage={diagnosisResult.triage} />
+              )}
 
-                <div className="flex gap-3 pt-2 border-t border-black/10 dark:border-white/10">
-                  <button onClick={handleNewDiagnosis}
-                    className="flex-1 py-3 bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 rounded-xl font-semibold transition-all text-slate-800 dark:text-white text-sm">
-                    New Diagnosis
-                  </button>
-                  <button onClick={onClose}
-                    className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-semibold transition-all text-white text-sm">
-                    Done
-                  </button>
-                </div>
+              <div className="flex gap-3 pt-2 border-t border-black/10 dark:border-white/10">
+                <button onClick={handleNewDiagnosis}
+                  className="flex-1 py-3 bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 rounded-xl font-semibold transition-all text-slate-800 dark:text-white text-sm">
+                  New Diagnosis
+                </button>
+                <button onClick={onClose}
+                  className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 rounded-xl font-semibold transition-all text-white text-sm">
+                  Done
+                </button>
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
         </div>
       </div>

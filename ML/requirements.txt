@@ -3,8 +3,14 @@ flask-cors
 tensorflow-cpu
 librosa
 numpy
-boto3
+boto3>=1.35.0
+botocore>=1.35.0
+urllib3>=2.2.0
+requests>=2.32.0
 python-dotenv
 Pillow
 gunicorn
+pydub
+audioread
+pytz
 faster-whisper

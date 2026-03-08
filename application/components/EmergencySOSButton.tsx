@@ -19,7 +19,9 @@ export default function EmergencySOSButton() {
         <span>Emergency SOS Diagnosis</span>
       </button>
 
-      <EmergencySOSModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+      {isModalOpen && (
+        <EmergencySOSModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
+      )}
     </>
   );
 }
