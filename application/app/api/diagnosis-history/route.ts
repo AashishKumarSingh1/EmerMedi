@@ -11,12 +11,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const { searchParams } = new URL(request.url);
+    const limit = parseInt(searchParams.get('limit') || '50');
+    const emergencyOnly = searchParams.get('emergencyOnly') === 'true';
+
     const db = await getDatabase();
+    const query: any = { userId: session.userId };
+    
+    if (emergencyOnly) {
+      query.isEmergency = true;
+    }
+
     const history = await db
       .collection('diagnosis_history')
-      .find({ userId: session.userId })
+      .find(query)
       .sort({ createdAt: -1 })
-      .limit(50)
+      .limit(limit)
       .toArray();
 
     return NextResponse.json({ history });

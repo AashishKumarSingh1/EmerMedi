@@ -1,81 +1,87 @@
 from flask import Blueprint, request, jsonify
 import os
-
-# 1. Suppress TensorFlow warnings
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-
-from flask import Flask, request, jsonify
-import numpy as np
-import librosa
-from tensorflow.keras.models import load_model
-
+import tempfile
+import uuid
+from models.audio_analyzer import analyze_audio_with_nova
 
 audio_bp = Blueprint('audio_bp', __name__)
 
-
-# --- CONFIGURATION & MAPPING ---
-# Standard mapping for many Emotion Detection models (Adjust indices if your model differs)
-EMOTION_MAP = {
-    0: {"label": "neutral",   "status": "Neutral"},
-    1: {"label": "calm",      "status": "Neutral"},
-    2: {"label": "happy",     "status": "Non-Emergency"},
-    3: {"label": "sad",       "status": "Non-Emergency"},
-    4: {"label": "angry",     "status": "Emergency"},
-    5: {"label": "fearful",   "status": "Emergency"},
-    6: {"label": "disgust",   "status": "Non-Emergency"},
-    7: {"label": "surprised", "status": "Emergency"} 
-}
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_NAME = 'Emotion_Voice_Detection_Model.h5'
-MODEL_PATH = os.path.join(BASE_DIR, MODEL_NAME)
-
-
-
-# Load model
-if os.path.exists(MODEL_PATH):
-    model = load_model(MODEL_PATH)
-    print(f"--- Model Loaded: {MODEL_NAME} ---")
-else:
-    print("ERROR: Model file not found.")
-    model = None
-
-def get_category(class_idx):
-    """Categorizes the numerical prediction into Emergency levels."""
-    info = EMOTION_MAP.get(class_idx, {"label": "unknown", "status": "Neutral"})
-    return info["label"], info["status"]
-
-def predict_audio_class(audio_data):
-    X, sr = librosa.load(audio_data, sr=16000)
-    mfccs = np.mean(librosa.feature.mfcc(y=X, sr=sr, n_mfcc=40).T, axis=0)
-    mfccs = np.expand_dims(mfccs, axis=(0, -1)) 
-
-    predictions = model.predict(mfccs, verbose=0)
-    return int(np.argmax(predictions, axis=1)[0])
+print("--- Audio Analysis: Using Amazon Bedrock Converse API ---")
 
 @audio_bp.route('/predict', methods=['POST'])
 def predict():
     if 'file' not in request.files:
+        print("ERROR: No file uploaded")
         return jsonify({'error': 'No file uploaded'}), 400
 
     file = request.files['file']
     
+    # Create unique temp file for this request
+    unique_id = str(uuid.uuid4())
+    temp_dir = tempfile.gettempdir()
+    input_path = os.path.join(temp_dir, f'audio_{unique_id}.wav')
+    
     try:
-        # 1. Get numerical prediction
-        class_idx = predict_audio_class(file)
+        print(f"📁 Processing audio file: {file.filename}")
         
-        # 2. Map to Label and Emergency Status
-        emotion, status = get_category(class_idx)
+        # Save uploaded file
+        file.save(input_path)
+        print(f"✓ Saved audio file: {os.path.basename(input_path)}")
         
-        # 3. Print to console for monitoring
-        print(f"Detected Sound: {emotion.upper()} | Category: {status.upper()}")
+        # Read audio bytes
+        with open(input_path, 'rb') as f:
+            audio_bytes = f.read()
+        
+        print(f"🎵 Audio size: {len(audio_bytes)} bytes")
+        
+        # Analyze with Nova Sonic
+        print(f"🤖 Analyzing with Amazon Bedrock Converse...")
+        result = analyze_audio_with_nova(audio_bytes)
+        
+        # Determine if it's an emergency
+        is_emergency = (
+            result.get('emergency_level') in ['critical', 'urgent'] or
+            result.get('call_ambulance') == True or
+            result.get('urgency_score', 0) >= 70
+        )
+        
+        print(f"✓ Analysis complete!")
+        print(f"   Emergency Level: {result.get('emergency_level', 'unknown').upper()}")
+        print(f"   Urgency Score: {result.get('urgency_score', 0)}")
+        print(f"   Is Emergency: {is_emergency}")
 
+        # Return in format expected by Next.js API
         return jsonify({
-            'detected_emotion': emotion,
-            'emergency_category': status,
-            'class_index': class_idx
+            'detected_emotion': result.get('detected_emotions', ['neutral'])[0] if result.get('detected_emotions') else 'neutral',
+            'emergency_category': 'Emergency' if is_emergency else 'Non-Emergency',
+            'emergency_level': result.get('emergency_level'),
+            'urgency_score': result.get('urgency_score'),
+            'call_ambulance': result.get('call_ambulance'),
+            'call_police': result.get('call_police'),
+            'call_fire_department': result.get('call_fire_department'),
+            'audio_type': result.get('audio_type'),
+            'voice_analysis': result.get('voice_analysis'),
+            'background_sounds': result.get('background_sounds'),
+            'spoken_content': result.get('spoken_content'),
+            'scene_assessment': result.get('scene_assessment'),
+            'immediate_actions': result.get('immediate_actions'),
+            'dispatcher_report': result.get('dispatcher_report'),
+            'reasoning': result.get('reasoning'),
+            'confidence_score': result.get('confidence_score'),
+            'full_analysis': result
         }), 200
 
     except Exception as e:
+        print(f"❌ ERROR in audio prediction: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+    
+    finally:
+        # Clean up temp file
+        if os.path.exists(input_path):
+            try:
+                os.remove(input_path)
+                print(f"🗑️ Cleaned up temp file")
+            except Exception as e:
+                print(f"⚠️ Failed to clean up {input_path}: {e}")

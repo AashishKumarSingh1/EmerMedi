@@ -6,6 +6,7 @@ import LanguageSelector from '@/components/LanguageSelector';
 import ProfileMenu from '@/components/ProfileMenu';
 import ThemeToggle from '@/components/ThemeToggle';
 import EmergencySOSButton from '@/components/EmergencySOSButton';
+import RecentEmergenciesClient from '@/components/RecentEmergenciesClient';
 import Link from 'next/link';
 
 export default async function DashboardPage() {
@@ -19,6 +20,41 @@ export default async function DashboardPage() {
   const user = await db.collection('users').findOne({ _id: new ObjectId(session.userId) });
   const profile = await db.collection('profiles').findOne({ userId: session.userId });
   const medicalRecords = await db.collection('medical_records').findOne({ userId: session.userId });
+
+  // Fetch recent critical diagnoses
+  const recentEmergencies = await db
+    .collection('diagnosis_history')
+    .find({ userId: session.userId, isEmergency: true })
+    .sort({ createdAt: -1 })
+    .limit(5)
+    .toArray();
+
+  // Calculate real statistics
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  
+  // Total diagnosis count
+  const totalDiagnoses = await db
+    .collection('diagnosis_history')
+    .countDocuments({ userId: session.userId });
+  
+  // Emergency diagnoses count
+  const emergencyCount = await db
+    .collection('diagnosis_history')
+    .countDocuments({ userId: session.userId, isEmergency: true });
+  
+  // Today's diagnoses
+  const todayDiagnoses = await db
+    .collection('diagnosis_history')
+    .countDocuments({ 
+      userId: session.userId, 
+      createdAt: { $gte: todayStart } 
+    });
+  
+  // Non-emergency (safe) diagnoses
+  const safeDiagnoses = await db
+    .collection('diagnosis_history')
+    .countDocuments({ userId: session.userId, isEmergency: false });
 
   // Calculate profile completion
   const profileFields = ['name', 'dob', 'gender', 'bloodGroup', 'phoneNumber', 'emergencyContact1'];
@@ -124,70 +160,52 @@ export default async function DashboardPage() {
         )}
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-6 sm:mb-8">
-          {[
-            { label: 'Active Cases', value: '12', change: '+3', color: 'red' },
-            { label: 'Response Time', value: '2.4m', change: '-0.3m', color: 'green' },
-            { label: 'Available Units', value: '8', change: '+2', color: 'blue' },
-            { label: 'Resolved Today', value: '47', change: '+12', color: 'yellow' },
-          ].map((stat, i) => (
-            <div key={i} className="bg-white/80 dark:bg-transparent dark:bg-gradient-to-br dark:from-white/10 dark:to-white/5 backdrop-blur-sm border border-black/5 dark:border-white/10 rounded-xl p-4 sm:p-6 shadow-sm dark:shadow-none transition-colors duration-300">
-              <div className="text-xs sm:text-sm text-slate-500 dark:text-gray-400 mb-2">{stat.label}</div>
-              <div className="flex items-end justify-between">
-                <div className="text-2xl sm:text-3xl font-bold notranslate">{stat.value}</div>
-                <div className={`text-xs sm:text-sm font-medium notranslate ${stat.change.startsWith('+') ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
-                  {stat.change}
-                </div>
+          <div className="bg-white/80 dark:bg-transparent dark:bg-gradient-to-br dark:from-white/10 dark:to-white/5 backdrop-blur-sm border border-black/5 dark:border-white/10 rounded-xl p-4 sm:p-6 shadow-sm dark:shadow-none transition-colors duration-300">
+            <div className="text-xs sm:text-sm text-slate-500 dark:text-gray-400 mb-2">Total Diagnoses</div>
+            <div className="flex items-end justify-between">
+              <div className="text-2xl sm:text-3xl font-bold notranslate">{totalDiagnoses}</div>
+              <div className="text-xs sm:text-sm font-medium text-blue-600 dark:text-blue-400">
+                All Time
               </div>
             </div>
-          ))}
+          </div>
+
+          <div className="bg-white/80 dark:bg-transparent dark:bg-gradient-to-br dark:from-white/10 dark:to-white/5 backdrop-blur-sm border border-black/5 dark:border-white/10 rounded-xl p-4 sm:p-6 shadow-sm dark:shadow-none transition-colors duration-300">
+            <div className="text-xs sm:text-sm text-slate-500 dark:text-gray-400 mb-2">Emergencies</div>
+            <div className="flex items-end justify-between">
+              <div className="text-2xl sm:text-3xl font-bold notranslate text-red-600 dark:text-red-400">{emergencyCount}</div>
+              <div className="text-xs sm:text-sm font-medium text-red-600 dark:text-red-400">
+                Critical
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white/80 dark:bg-transparent dark:bg-gradient-to-br dark:from-white/10 dark:to-white/5 backdrop-blur-sm border border-black/5 dark:border-white/10 rounded-xl p-4 sm:p-6 shadow-sm dark:shadow-none transition-colors duration-300">
+            <div className="text-xs sm:text-sm text-slate-500 dark:text-gray-400 mb-2">Safe Diagnoses</div>
+            <div className="flex items-end justify-between">
+              <div className="text-2xl sm:text-3xl font-bold notranslate text-green-600 dark:text-green-400">{safeDiagnoses}</div>
+              <div className="text-xs sm:text-sm font-medium text-green-600 dark:text-green-400">
+                Non-Emergency
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white/80 dark:bg-transparent dark:bg-gradient-to-br dark:from-white/10 dark:to-white/5 backdrop-blur-sm border border-black/5 dark:border-white/10 rounded-xl p-4 sm:p-6 shadow-sm dark:shadow-none transition-colors duration-300">
+            <div className="text-xs sm:text-sm text-slate-500 dark:text-gray-400 mb-2">Today's Scans</div>
+            <div className="flex items-end justify-between">
+              <div className="text-2xl sm:text-3xl font-bold notranslate">{todayDiagnoses}</div>
+              <div className="text-xs sm:text-sm font-medium text-blue-600 dark:text-blue-400">
+                Today
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="grid lg:grid-cols-3 gap-4 sm:gap-6">
-          <div className="lg:col-span-2 bg-white/80 dark:bg-transparent dark:bg-gradient-to-br dark:from-white/10 dark:to-white/5 backdrop-blur-sm border border-black/5 dark:border-white/10 rounded-xl p-4 sm:p-6 shadow-sm dark:shadow-none transition-colors duration-300">
-            <div className="flex items-center justify-between mb-4 sm:mb-6">
-              <h2 className="text-lg sm:text-xl font-bold">Recent Emergencies</h2>
-              <div className="flex gap-2">
-                <button className="px-2 sm:px-3 py-1 sm:py-1.5 bg-red-500/10 dark:bg-red-500/20 text-red-600 dark:text-red-400 rounded-lg text-xs sm:text-sm font-medium transition-colors">
-                  Critical
-                </button>
-                <button className="px-2 sm:px-3 py-1 sm:py-1.5 bg-black/5 dark:bg-white/5 text-slate-600 dark:text-gray-400 rounded-lg text-xs sm:text-sm font-medium hover:bg-black/10 dark:hover:bg-white/10 transition-colors">
-                  All
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              {[
-                { id: 'EM-2847', type: 'Cardiac Arrest', location: 'Downtown Plaza', status: 'In Progress', priority: 'Critical' },
-                { id: 'EM-2846', type: 'Traffic Accident', location: 'Highway 101', status: 'Dispatched', priority: 'High' },
-                { id: 'EM-2845', type: 'Respiratory Distress', location: 'Oak Street', status: 'Resolved', priority: 'Medium' },
-              ].map((emergency, i) => (
-                <div key={i} className="p-3 sm:p-4 bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/5 rounded-lg hover:bg-black/10 dark:hover:bg-white/10 transition-colors cursor-pointer">
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <div className="font-semibold text-slate-900 dark:text-white mb-1 text-sm sm:text-base">{emergency.type}</div>
-                      <div className="text-xs sm:text-sm text-slate-600 dark:text-gray-400"><span className="notranslate">{emergency.id}</span> • {emergency.location}</div>
-                    </div>
-                    <span className={`px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-medium ${
-                      emergency.priority === 'Critical' ? 'bg-red-500/20 text-red-700 dark:text-red-400' :
-                      emergency.priority === 'High' ? 'bg-orange-500/20 text-orange-700 dark:text-orange-400' :
-                      'bg-yellow-500/20 text-yellow-700 dark:text-yellow-400'
-                    }`}>
-                      {emergency.priority}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${
-                      emergency.status === 'In Progress' ? 'bg-yellow-500 dark:bg-yellow-400 animate-pulse' :
-                      emergency.status === 'Dispatched' ? 'bg-blue-500 dark:bg-blue-400' :
-                      'bg-green-500 dark:bg-green-400'
-                    }`} />
-                    <span className="text-xs sm:text-sm text-slate-600 dark:text-gray-400">{emergency.status}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <RecentEmergenciesClient initialEmergencies={recentEmergencies.map(e => ({
+            ...e,
+            _id: e._id.toString()
+          }))} />
 
           <div className="space-y-4 sm:space-y-6">
             {/* Emergency SOS Button - Prominent placement */}
@@ -217,25 +235,6 @@ export default async function DashboardPage() {
                 <button className="w-full py-2.5 sm:py-3 bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/20 rounded-lg font-medium transition-all text-sm sm:text-base text-slate-800 dark:text-white border border-black/5 dark:border-transparent">
                   Contact Dispatch
                 </button>
-              </div>
-            </div>
-
-            <div className="bg-white/80 dark:bg-transparent dark:bg-gradient-to-br dark:from-white/10 dark:to-white/5 backdrop-blur-sm border border-black/5 dark:border-white/10 rounded-xl p-4 sm:p-6 shadow-sm dark:shadow-none transition-colors duration-300">
-              <h2 className="text-lg sm:text-xl font-bold mb-4">System Status</h2>
-              <div className="space-y-3">
-                {[
-                  { name: 'GPS Tracking', status: 'Operational' },
-                  { name: 'Communication', status: 'Operational' },
-                  { name: 'Database', status: 'Operational' },
-                ].map((system, i) => (
-                  <div key={i} className="flex items-center justify-between">
-                    <span className="text-xs sm:text-sm text-slate-600 dark:text-gray-400">{system.name}</span>
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 bg-green-500 dark:bg-green-400 rounded-full" />
-                      <span className="text-xs sm:text-sm text-green-600 dark:text-green-400">{system.status}</span>
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           </div>
