@@ -205,7 +205,7 @@ export default async function DashboardPage() {
           <RecentEmergenciesClient initialEmergencies={recentEmergencies.map(e => ({
             ...e,
             _id: e._id.toString()
-          }))} />
+          })) as any} />
 
           <div className="space-y-4 sm:space-y-6">
             {/* Emergency SOS Button - Prominent placement */}

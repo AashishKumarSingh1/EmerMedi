@@ -1,6 +1,7 @@
 'use client';
 
-import { X, AlertCircle, CheckCircle, Download } from 'lucide-react';
+import { useState } from 'react';
+import { X, AlertCircle, CheckCircle, Download, Building2, FileText, Loader2 } from 'lucide-react';
 
 interface DiagnosisDetailModalProps {
   record: {
@@ -16,6 +17,47 @@ interface DiagnosisDetailModalProps {
 }
 
 export default function DiagnosisDetailModal({ record, onClose }: DiagnosisDetailModalProps) {
+  const [isFindingHospitals, setIsFindingHospitals] = useState(false);
+  const [hospitalsResult, setHospitalsResult] = useState<any>(null);
+  const [isGeneratingEpcr, setIsGeneratingEpcr] = useState(false);
+  const [epcrResult, setEpcrResult] = useState<any>(null);
+
+  const handleFindHospitals = async () => {
+    try {
+      setIsFindingHospitals(true);
+      const res = await fetch('/api/emergency/hospitals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(record.result.rawData || record.result),
+      });
+      const data = await res.json();
+      setHospitalsResult(data);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to find hospitals');
+    } finally {
+      setIsFindingHospitals(false);
+    }
+  };
+
+  const handleGenerateEpcr = async () => {
+    try {
+      setIsGeneratingEpcr(true);
+      const res = await fetch('/api/emergency/epcr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(record.result.rawData || record.result),
+      });
+      const data = await res.json();
+      setEpcrResult(data);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to generate ePCR');
+    } finally {
+      setIsGeneratingEpcr(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto border border-black/10 dark:border-white/10">
@@ -172,6 +214,73 @@ export default function DiagnosisDetailModal({ record, onClose }: DiagnosisDetai
               {JSON.stringify(record.result.rawData || record.result, null, 2)}
             </pre>
           </details>
+
+          {/* ML Tools */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="bg-black/5 dark:bg-white/5 rounded-xl p-6">
+              <h4 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                Find Hospitals
+              </h4>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                Use AI to identify the top 5 most suitable medical facilities for this specific emergency.
+              </p>
+              <button
+                onClick={handleFindHospitals}
+                disabled={isFindingHospitals}
+                className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isFindingHospitals ? <Loader2 className="w-4 h-4 animate-spin" /> : <Building2 className="w-4 h-4" />}
+                {isFindingHospitals ? 'Processing...' : 'Find Specific Hospitals'}
+              </button>
+              
+              {hospitalsResult && (
+                <div className="mt-4 p-4 bg-white dark:bg-slate-800 rounded-lg max-h-60 overflow-y-auto">
+                  {hospitalsResult.hospital_list?.recommended_hospitals ? (
+                    <div className="space-y-4">
+                      {hospitalsResult.hospital_list.recommended_hospitals.map((h: any, i: number) => (
+                        <div key={i} className="border-b border-black/10 dark:border-white/10 pb-3 last:border-0 last:pb-0">
+                          <div className="font-bold text-slate-900 dark:text-white flex items-center justify-between">
+                            <span>{h.facility_name || h.category}</span>
+                            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">{h.priority_level}</span>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1">{h.justification}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <pre className="text-xs overflow-x-auto">{JSON.stringify(hospitalsResult, null, 2)}</pre>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-black/5 dark:bg-white/5 rounded-xl p-6">
+              <h4 className="text-lg font-bold mb-4 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                Generate ePCR
+              </h4>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                Generate a comprehensive electronic Patient Care Record (ePCR) using AI analysis.
+              </p>
+              <button
+                onClick={handleGenerateEpcr}
+                disabled={isGeneratingEpcr}
+                className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isGeneratingEpcr ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                {isGeneratingEpcr ? 'Processing...' : 'Generate ePCR'}
+              </button>
+              
+              {epcrResult && (
+                <div className="mt-4 p-4 bg-white dark:bg-slate-800 rounded-lg max-h-60 overflow-y-auto">
+                  <pre className="text-xs overflow-x-auto whitespace-pre-wrap">
+                    {JSON.stringify(epcrResult.data || epcrResult, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </div>
 
           {/* Close Button */}
           <button
