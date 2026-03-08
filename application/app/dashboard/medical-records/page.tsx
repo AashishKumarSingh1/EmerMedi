@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import ProfileMenu from '@/components/ProfileMenu';
 import Breadcrumbs from '@/components/Breadcrumbs';
@@ -16,7 +16,9 @@ import {
   ArrowLeft,
   Calendar,
   Building2,
-  Syringe
+  Syringe,
+  FileSearch,
+  Loader2
 } from 'lucide-react';
 
 interface Disease {
@@ -58,6 +60,9 @@ interface Surgery {
 export default function MedicalRecordsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<any>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [message, setMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
   const [userName, setUserName] = useState('');
   
@@ -142,6 +147,34 @@ export default function MedicalRecordsPage() {
     } catch (error) {
       console.error('Error fetching records:', error);
       setLoading(false);
+    }
+  };
+
+  const handleScanDocument = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setIsScanning(true);
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const res = await fetch('/api/medical-records/scan', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to scan');
+      
+      setScanResult(data);
+      setMessage({ text: 'Document scanned successfully', type: 'success' });
+    } catch (err: any) {
+      console.error(err);
+      setMessage({ text: err.message || 'Failed to scan document', type: 'error' });
+    } finally {
+      setIsScanning(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -253,6 +286,42 @@ export default function MedicalRecordsPage() {
           <p className="text-lg text-slate-600 dark:text-slate-400 leading-relaxed font-light">
             Keep your health history current. This data ensures responders have critical context during emergencies.
           </p>
+          
+          <div className="mt-6 flex items-center gap-4">
+            <input 
+              type="file" 
+              accept="image/*" 
+              className="hidden" 
+              ref={fileInputRef} 
+              onChange={handleScanDocument} 
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isScanning}
+              className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold transition-colors disabled:opacity-50"
+            >
+              {isScanning ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileSearch className="w-5 h-5" />}
+              {isScanning ? 'Scanning...' : 'Scan Medical Document'}
+            </button>
+            <span className="text-sm text-slate-500">Auto-extract data using AI</span>
+          </div>
+
+          {scanResult && (
+            <div className="mt-4 p-4 bg-white/50 dark:bg-slate-800/50 rounded-xl border border-blue-200 dark:border-blue-900 overflow-x-auto">
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="font-bold text-slate-900 dark:text-white">Extracted Data</h4>
+                <button 
+                  onClick={() => setScanResult(null)}
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  Clear
+                </button>
+              </div>
+              <pre className="text-xs text-slate-700 dark:text-slate-300">
+                {JSON.stringify(scanResult.data || scanResult, null, 2)}
+              </pre>
+            </div>
+          )}
         </div>
 
         {message && (

@@ -303,6 +303,31 @@ function AudioResultView({ result }: { result: DiagnosisResult }) {
 
 function ImageTriageView({ triage }: { triage: ImageTriageResult }) {
   const [copied, setCopied] = useState(false);
+  const [hospitals, setHospitals] = useState<any>(null);
+  const [isFetchingHospitals, setIsFetchingHospitals] = useState(false);
+
+  useEffect(() => {
+    if (triage.hospital_recommendation && triage.hospital_recommendation.toLowerCase() !== 'none') {
+      const fetchHospitals = async () => {
+        try {
+          setIsFetchingHospitals(true);
+          const res = await fetch('/api/emergency/hospitals', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(triage),
+          });
+          const data = await res.json();
+          setHospitals(data);
+        } catch (e) {
+          console.error('Failed to fetch hospitals:', e);
+        } finally {
+          setIsFetchingHospitals(false);
+        }
+      };
+      
+      fetchHospitals();
+    }
+  }, [triage]);
 
   const copyReport = (text: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -439,6 +464,30 @@ function ImageTriageView({ triage }: { triage: ImageTriageResult }) {
               <div key={label}>
                 <span className="text-xs text-slate-500 dark:text-slate-400">{label}: </span>
                 <span className="text-sm font-medium text-slate-900 dark:text-white capitalize">{val}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {isFetchingHospitals && (
+          <div className="flex items-center gap-2 mt-4 pt-4 border-t border-black/10 dark:border-white/10 text-xs text-blue-600 dark:text-blue-400">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            AI is finding the best nearby facilities for these exact injuries...
+          </div>
+        )}
+
+        {hospitals?.hospital_list?.recommended_hospitals && (
+          <div className="mt-4 pt-4 border-t border-black/10 dark:border-white/10 space-y-3">
+            <SectionHead label="Recommended Facilities (AI Found)" />
+            {hospitals.hospital_list.recommended_hospitals.slice(0, 3).map((h: any, i: number) => (
+              <div key={i} className="flex justify-between items-start gap-4 p-2.5 bg-blue-50/50 dark:bg-blue-900/10 rounded-lg">
+                <div>
+                  <div className="font-bold text-slate-900 dark:text-white capitalize text-sm">{h.facility_name || h.category}</div>
+                  <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">{h.justification}</div>
+                </div>
+                <span className="text-[10px] font-bold tracking-wider uppercase bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300 px-2 py-1 rounded-full whitespace-nowrap">
+                  {h.priority_level}
+                </span>
               </div>
             ))}
           </div>
