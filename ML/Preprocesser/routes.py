@@ -17,9 +17,54 @@ def find_hospitals_route():
         print("data receiver in routes")
         # Step 1: Extract/Scrape features using the preprocessing module
         features = preprocess_data(triage_data)
+
+        # If the LLM preprocessor returned an error dictionary
+        if isinstance(features, dict) and "error" in features:
+            return jsonify({
+                "status": "error",
+                "message": features["error"],
+                "details": features.get("details", "")
+            }), 502
         
         # Step 2: Find best hospitals using the finder module
-        recommendations = hospital_finder(features)
+        # We pass candidate hospitals from the frontend (Google/static) so the model can
+        # pick real facilities with place_id + lat/lng instead of inventing names.
+        recommendations = hospital_finder({
+            "extracted_features": features,
+            "candidate_hospitals": triage_data.get("candidate_hospitals", []),
+            "origin": (triage_data.get("logistics", {}) or {}).get("coordinates")
+        })
+
+        if isinstance(recommendations, dict) and "error" in recommendations:
+            return jsonify({
+                "status": "error",
+                "message": recommendations["error"],
+                "details": recommendations.get("details", "")
+            }), 502
+
+        # Compatibility: ensure latitude/longitude fields exist for UI mapping.
+        # We keep the canonical location: {lat, lng} and also duplicate fields.
+        if isinstance(recommendations, dict):
+            recs = recommendations.get("recommended_hospitals")
+            if isinstance(recs, list):
+                for h in recs:
+                    if not isinstance(h, dict):
+                        continue
+
+                    loc = h.get("location")
+                    if isinstance(loc, dict):
+                        lat = loc.get("lat")
+                        lng = loc.get("lng")
+                        if "latitude" not in h and lat is not None:
+                            h["latitude"] = lat
+                        if "longitude" not in h and lng is not None:
+                            h["longitude"] = lng
+                    else:
+                        # If model returned latitude/longitude only, synthesize location.
+                        lat = h.get("latitude")
+                        lng = h.get("longitude")
+                        if isinstance(lat, (int, float)) and isinstance(lng, (int, float)):
+                            h["location"] = {"lat": float(lat), "lng": float(lng)}
 
         return jsonify({
             "status": "success",

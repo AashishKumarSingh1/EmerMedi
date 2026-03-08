@@ -35,8 +35,8 @@ Perform a full emergency assessment and return this exact JSON schema:
   "scene_type": "<traffic_accident|fall_injury|cardiac_event|stroke|fire_hazard|violence_assault|drowning|burns|medical_emergency|overdose_poisoning|mental_health_crisis|normal|other>",
   "patient_status": {{
     "estimated_victims": <integer>,
-    "consciousness_level": "<conscious_alert|conscious_confused|unconscious|unknown>",
-    "breathing_status": "<normal|labored_distressed|not_breathing|unknown>",
+    "consciousness_level": "<conscious_alert|conscious_confused|unconscious|normal>",
+    "breathing_status": "<normal|labored_distressed|not_breathing|normal>",
     "injury_severity": "<life_threatening|serious|moderate|minor|none>"
   }},
   "detected_injuries": [
@@ -271,8 +271,8 @@ def _fallback_analysis(rekognition_data: dict) -> dict:
         "scene_type": "other" if score > 9 else "normal",
         "patient_status": {
             "estimated_victims": 0,
-            "consciousness_level": "unknown",
-            "breathing_status": "unknown",
+            "consciousness_level": "normal",
+            "breathing_status": "normal",
             "injury_severity": level if level != "none" else "none",
         },
         "detected_injuries": [],
@@ -348,8 +348,8 @@ def _parse_json_safely(text: str) -> dict:
             "scene_type": "medical_emergency" if has_critical else "other",
             "patient_status": {
                 "estimated_victims": 1,
-                "consciousness_level": "unknown",
-                "breathing_status": "unknown",
+                "consciousness_level": "normal",
+                "breathing_status": "normal",
                 "injury_severity": "serious" if has_critical else "moderate"
             },
             "detected_injuries": [],
